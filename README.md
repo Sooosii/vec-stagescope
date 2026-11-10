@@ -37,9 +37,13 @@ dropout, and a min(raw, matched) rule, are pre-registered for v0.2 (`PREREGISTRA
 evaluated on a board not used here.
 
 **Post-hoc observation, not validated:** on the boards we looked at, depth matching recovered copies hidden
-by uniform dropout that the raw distance missed (raw r between about 0.4 and 6 vs matched r near 0). With
-additive noise the opposite happened: matched r became larger than for genuinely different stages (about 4
-and 10), while raw r stayed small. Read the two columns together.
+by uniform dropout that the raw distance missed (raw r between about 0.4 and 25 vs matched r near 0; real
+other stages about 1 or more). With additive noise the opposite happened: matched r became far larger than
+for genuinely different stages (about 4 to 33). On the two 500-gene Task 2 boards raw r stayed small for the
+noisy copy, so the divergence flag fires; on the ~32,000-gene Task 1 board noise filled so many zeros that
+raw r was also above 1, so **neither column and no flag catches a noisy copy there**. On Task 1 the
+count-like construction zeroed so much of the matrix that it hit the collapse gate. Read the two columns
+together, and do not read a large r as proof that a prediction is not a copy.
 
 ## Output
 
