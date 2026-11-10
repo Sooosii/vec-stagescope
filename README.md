@@ -28,7 +28,7 @@ vec-stagescope removes that confound first, then measures distance:
 ## Copy label: not shipped
 
 Our pre-registered calibration required every disguised-copy construction to fall below the copy threshold
-on real data; uniform detected-gene dropout did (depth-matched r ≈ 0.001 vs ≥ 0.96 for distinct stages), but
+on real data; uniform detected-gene dropout did (depth-matched r near zero vs around one or more for distinct stages), but
 additive noise, expression-dependent dropout and count-like thinning did not, so per our own rule the tool
 reports raw and depth-matched distances and r side by side without a copy verdict. When raw r is small but
 depth-matched r is large, the report flags it: depth matching can discard signal when the depth difference
@@ -37,13 +37,13 @@ dropout, and a min(raw, matched) rule, are pre-registered for v0.2 (`PREREGISTRA
 evaluated on a board not used here.
 
 **Post-hoc observation, not validated:** on the boards we looked at, depth matching recovered copies hidden
-by uniform dropout that the raw distance missed (raw r between about 0.4 and 25 vs matched r near 0; real
-other stages about 1 or more). With additive noise the opposite happened: matched r became far larger than
-for genuinely different stages (about 4 to 33). On the two 500-gene Task 2 boards raw r stayed small for the
-noisy copy, so the divergence flag fires; on the ~32,000-gene Task 1 board noise filled so many zeros that
-raw r was also above 1, so **neither column and no flag catches a noisy copy there**. On Task 1 the
-count-like construction zeroed so much of the matrix that it hit the collapse gate. Read the two columns
-together, and do not read a large r as proof that a prediction is not a copy.
+by uniform dropout that the raw distance missed (matched r near zero, while raw r was often as large as or
+larger than for real stage differences). With additive noise the opposite happened: matched r became far
+larger than for genuinely different stages. On the panel-based Task 2 boards raw r stayed small for the noisy
+copy, so the divergence flag fires; on the full-transcriptome Task 1 board noise filled so many zeros that raw
+r was also large, so **neither column and no flag catches a noisy copy there**. On Task 1 the count-like
+construction zeroed so much of the matrix that it hit the collapse gate. Read the two columns together, and do
+not read a large r as proof that a prediction is not a copy.
 
 ## Output
 
@@ -91,8 +91,8 @@ against every stage so you can see if the assumption is wrong.
   thinning, and a copy mixed with 15% of a neighbouring stage.
 - The calibration rule was written before looking at real data: thresholds chosen on one board, then
   tested untouched on the others, locally. Its outcome was that no copy threshold separated all disguised
-  copies from real stage differences, so no label ships (above). Per the challenge terms no table of
-  data-derived numbers is published; the few values quoted above are summaries of that calibration.
+  copies from real stage differences, so no label ships (above). Per the challenge terms no data-derived
+  numbers are published.
 - Each board has only two "other" stages, so the evidence that the thresholds separate copies from real
   stage differences is thin.
 - Each published stage is a single embryo. A difference between stage files is development + embryo +
@@ -104,7 +104,8 @@ against every stage so you can see if the assumption is wrong.
 
 ## Deviations from the written plan
 
-- **Noise floor.** The floor is the unbiased (U-statistic) energy distance between disjoint samples, so on
+- **Noise floor.** The floor uses the same energy-distance estimator as veckit (within-sample terms with
+  n(n-1) denominators, i.e. unbiased), between disjoint samples, so on
   real data it is close to zero and can be slightly negative; this is expected, not an error. A rule using
   `max(floor, 0.01 × stage separation)` was chosen after seeing that; it only affected the copy label, which
   does not ship.
