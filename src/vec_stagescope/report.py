@@ -5,20 +5,10 @@ from dataclasses import asdict
 
 from .proximity import Result
 
-LABEL_TEXT = {
-    "copy_like": "COPY-LIKE: after depth matching the prediction is as close to the input stage as "
-                 "two samples of that stage are to each other.",
-    "very_close": "VERY CLOSE to the input stage.",
-    "info": "Not close to the input stage.",
-    "no_separation": "No label: on this board the stages are not farther apart than a few noise "
-                     "floors at matched depth.",
-}
-
-
 def to_dict(res: Result, board: str, prediction: str, base_assumed: bool, notes=()) -> dict:
     doc = asdict(res)
-    doc["ed_by_stage"] = {k: {"min": v[0], "mean": v[1], "max": v[2]}
-                          for k, v in res.ed_by_stage.items()}
+    for key in ("ed_by_stage", "raw_ed_by_stage"):
+        doc[key] = {k: {"min": v[0], "mean": v[1], "max": v[2]} for k, v in doc[key].items()}
     doc.update(board=board, prediction=prediction, base_assumed=base_assumed,
                warnings=list(notes) + list(res.warnings))
     return doc
@@ -39,17 +29,21 @@ def to_text(doc: dict) -> str:
     if doc["gate"]:
         lines += ["", f"GATE: {doc['gate']} - no placement."]
     else:
-        lines += ["", "Depth-matched energy distance to each training stage:",
-                  f"  {'stage':<10}{'ED mean':>10}{'range':>22}{'r':>9}"]
+        lines += ["", "Energy distance (ED) and r to each training stage, raw and depth-matched:",
+                  f"  {'stage':<10}{'raw ED':>9}{'raw r':>8}{'matched ED':>12}{'range':>20}"
+                  f"{'matched r':>11}"]
         for k, v in doc["ed_by_stage"].items():
+            raw = doc["raw_ed_by_stage"][k]["mean"]
             rng = f"[{_f(v['min'])}, {_f(v['max'])}]"
             mark = "  <- input stage" if k == doc["base"] else ""
-            lines.append(f"  {k:<10}{_f(v['mean']):>10}{rng:>22}{_f(doc['r_by_stage'][k]):>9}{mark}")
+            lines.append(f"  {k:<10}{_f(raw):>9}{_f(doc['raw_r_by_stage'][k]):>8}"
+                         f"{_f(v['mean']):>12}{rng:>20}{_f(doc['r_by_stage'][k]):>11}{mark}")
         lines += ["",
-                  f"noise floor (two disjoint samples of {doc['base']}): {_f(doc['ed_floor'])}",
-                  f"r denominator (ED of {doc['base']} to nearest other stage): {_f(doc['denominator'])}",
-                  f"r_floor = {_f(doc['r_floor'])}",
-                  "", f"Result: {LABEL_TEXT[doc['label']]}"]
+                  f"noise floor (two disjoint samples of {doc['base']}, matched): {_f(doc['ed_floor'])}",
+                  f"r denominator (matched ED of {doc['base']} to nearest other stage): "
+                  f"{_f(doc['denominator'])}",
+                  "", "No copy verdict is issued (see README: 'Copy label: not shipped'). A small r "
+                  "means close to the input stage; read raw and matched together."]
     if doc["warnings"]:
         lines += ["", "Warnings:"] + [f"  - {w}" for w in doc["warnings"]]
     lines += ["", "This measures similarity to published stage files, not developmental time, and is "

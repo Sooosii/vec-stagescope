@@ -26,13 +26,15 @@ def test_cli_reports_copy_and_writes_json(data_dir, stages, tmp_path, capsys):
                  "--json", str(out), "--n", "400", "--repeats", "2"])
     assert code == 0
     doc = json.loads(out.read_text())
-    assert doc["label"] == "copy_like"
-    assert "depth" in doc and "r_by_stage" in doc
-    assert "copy" in capsys.readouterr().out.lower()
+    assert "label" not in doc
+    assert doc["r_by_stage"]["S3"] < 0.10 < doc["raw_r_by_stage"]["S3"] or doc["r_by_stage"]["S3"] < 0.10
+    assert "depth" in doc and "raw_ed_by_stage" in doc
+    assert "no copy verdict" in capsys.readouterr().out.lower()
 
 
 def test_cli_strict_returns_1_on_warning(data_dir, stages, tmp_path):
-    pred = write_h5ad(tmp_path / "pred.h5ad", stages["S3"][:800])
+    genes = list(GENES[:-1]) + ["zz1"]
+    pred = write_h5ad(tmp_path / "pred.h5ad", stages["S3"][:800], genes=genes)
     code = main(["check", str(pred), "--board", "TEST:synth", "--data-dir", str(data_dir),
                  "--n", "300", "--repeats", "1", "--strict"])
     assert code == 1
@@ -45,6 +47,13 @@ def test_gene_mismatch_warns_and_intersects(data_dir, stages, tmp_path, capsys):
                  "--n", "300", "--repeats", "1"])
     assert code == 0
     assert "3 prediction genes not in" in capsys.readouterr().out
+
+
+def test_cli_without_strict_returns_0_despite_warning(data_dir, stages, tmp_path):
+    genes = list(GENES[:-1]) + ["zz1"]
+    pred = write_h5ad(tmp_path / "pred.h5ad", stages["S3"][:800], genes=genes)
+    assert main(["check", str(pred), "--board", "TEST:synth", "--data-dir", str(data_dir),
+                 "--n", "300", "--repeats", "1"]) == 0
 
 
 def test_t3_board_is_rejected(tmp_path, capsys):

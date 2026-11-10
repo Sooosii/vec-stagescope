@@ -15,7 +15,6 @@ def _run(pred, stages, base="S3", **kw):
 def test_exact_copy_is_copy_like(stages):
     res = _run(stages["S3"][:2000].copy(), stages)
     assert res.r_base < 0.10
-    assert res.label == "copy_like"
 
 
 @pytest.mark.parametrize("keep", [0.7, 0.5, 0.3])
@@ -23,26 +22,23 @@ def test_hidden_copy_is_caught_after_depth_matching(stages, keep):
     pred = uniform_dropout(stages["S3"], keep, seed=7)
     res = _run(pred, stages)
     assert res.r_base < 0.10, res.r_base
-    assert res.label == "copy_like"
 
 
 def test_raw_distance_misses_heavily_thinned_copy(stages):
     pred = uniform_dropout(stages["S3"], 0.3, seed=7)
-    raw = _run(pred, stages, depth_matched=False)
-    assert raw.r_base > 0.10
+    res = _run(pred, stages)
+    assert res.raw_r_base > 0.10 > res.r_base
 
 
 def test_noisy_copy_is_close(stages):
     res = _run(add_noise(stages["S3"], 0.1, seed=3), stages)
     assert res.r_base < 0.30
-    assert res.label in {"copy_like", "very_close"}
 
 
 def test_different_stage_is_far(stages):
     other = make_stage("S1", 2000, seed=99)
     res = _run(other, stages)
     assert res.r_base > 0.50
-    assert res.label == "info"
 
 
 # (a) foreign corruptions: not produced by the mechanism the method undoes
@@ -70,24 +66,35 @@ def test_floor_and_r_per_stage_reported(stages):
     assert lo <= mean <= hi
 
 
-def test_no_label_when_stages_do_not_separate():
+def test_note_when_stages_do_not_separate():
     a = make_stage("S1", 2000, seed=1)
     b = make_stage("S1", 2000, seed=2)
     res = diagnose(a[:1000].copy(), {"A": a, "B": b}, base="A", **KW)
-    assert res.label == "no_separation"
+    assert any("noise floors" in w for w in res.warnings)
+
+
+def test_divergence_flag_rule():
+    from vec_stagescope.proximity import divergence_warning
+    assert "filled-in zeros" in divergence_warning(0.01, 4.2, "E8.25")[0]
+    assert divergence_warning(0.01, 0.5, "E8.25") == ()
+    assert divergence_warning(0.5, 4.2, "E8.25") == ()
+
+
+def test_no_copy_verdict_field():
+    from vec_stagescope.proximity import Result
+    assert "label" not in Result.__dataclass_fields__
 
 
 def test_collapsed_prediction_is_gated(stages):
     pred = np.repeat(stages["S3"].mean(0, keepdims=True), 1000, axis=0)
     res = _run(pred, stages)
     assert res.gate == "collapsed"
-    assert res.label is None and res.r_base is None
+    assert res.r_base is None
 
 
 def test_empty_prediction_is_gated(stages):
     res = _run(np.zeros((1000, stages["S3"].shape[1]), np.float32), stages)
     assert res.gate == "empty"
-    assert res.label is None
 
 
 def test_deterministic(stages):

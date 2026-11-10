@@ -1,10 +1,10 @@
 """Depth-matched proximity of a prediction to each published training stage.
 
-r = ED(prediction, base) / ED(base, nearest other stage), all depth-matched. A noise floor
-(two disjoint samples of the base stage) guards the copy label: a board whose stages are not
-farther apart than a few noise floors gets no label at all.
+r = ED(prediction, stage) / ED(base, nearest other stage). Raw and depth-matched values are
+reported side by side, with a noise floor (two disjoint samples of the base stage).
 
-Thresholds are provisional until the pre-registered calibration (plan §9 c) fixes them.
+No copy verdict is issued: the pre-registered calibration (plan §9 c) did not separate every
+disguised-copy construction from real stage differences, so per that rule the label was dropped.
 """
 from __future__ import annotations
 
@@ -17,13 +17,12 @@ from .distance import energy_distance
 from .gates import COLLAPSE_LIMIT, EMPTY_FRACTION_LIMIT, empty_fraction, variance_ratio
 from .io import sample_dense
 
-COPY_R = 0.10          # r below this (and within K_FLOOR noise floors) -> "copy_like"
-NEAR_R = 0.30          # r below this -> "very_close"
-K_FLOOR = 2.0
-MIN_SEPARATION = 3.0   # denominator must exceed this many noise floors for any label
-FLOOR_MIN_FRACTION = 0.01  # the floor estimate is itself noisy around 0; never use less than 1% of
-#                            the stage separation as the floor in the copy rule
+MIN_SEPARATION = 3.0   # stages closer than this many noise floors -> "stages do not separate" note
 DEPTH_WARN = 0.5
+# Diagnostic flag only (not a verdict): raw r small but depth-matched r large means the depth
+# difference probably comes from filled-in zeros (e.g. added noise), and matching discarded signal.
+FLAG_RAW_R = 0.1
+FLAG_MATCHED_R = 1.0
 
 
 @dataclass(frozen=True)
@@ -33,8 +32,10 @@ class Result:
     repeats: int
     depth: dict
     gate: str | None = None
-    label: str | None = None
     r_base: float | None = None
+    raw_r_base: float | None = None
+    raw_r_by_stage: dict = field(default_factory=dict)
+    raw_ed_by_stage: dict = field(default_factory=dict)
     r_by_stage: dict = field(default_factory=dict)
     ed_by_stage: dict = field(default_factory=dict)   # stage -> (min, mean, max) over repeats
     ed_floor: float | None = None
@@ -80,14 +81,12 @@ def _one_repeat(pred, stages, base, n, rng, depth_matched):
     return eds, vr, floor, denom
 
 
-def _label(ed_base, floor, denom, r):
-    if denom <= MIN_SEPARATION * max(floor, 1e-12):
-        return "no_separation"
-    if ed_base <= K_FLOOR * max(floor, FLOOR_MIN_FRACTION * denom) and r < COPY_R:
-        return "copy_like"
-    if r < NEAR_R:
-        return "very_close"
-    return "info"
+def divergence_warning(raw_r: float, matched_r: float, base: str) -> tuple:
+    if raw_r < FLAG_RAW_R and matched_r > FLAG_MATCHED_R:
+        return (f"Raw r vs {base} is small ({raw_r:.3g}) but depth-matched r is large "
+                f"({matched_r:.3g}): the depth difference probably comes from filled-in zeros "
+                "(e.g. added noise), and depth matching may have discarded signal.",)
+    return ()
 
 
 def _depth_warnings(depth):
@@ -109,15 +108,18 @@ def diagnose(pred, stages: dict, base: str, n: int = 1500, repeats: int = 5, see
         return Result(**common, gate="empty",
                       warnings=("More than half of the cells are all-zero; no placement.",))
 
-    runs = [_one_repeat(pred, stages, base, n, np.random.default_rng([seed, i]), depth_matched)
-            for i in range(repeats)]
-    ed_by_stage = {}
-    for label in stages:
-        vals = [r[0][label] for r in runs]
-        ed_by_stage[label] = (min(vals), float(np.mean(vals)), max(vals))
-    vr = float(np.mean([r[1] for r in runs]))
-    floor = float(np.mean([r[2] for r in runs]))
-    denom = float(np.mean([r[3] for r in runs]))
+    def summarise(matched):
+        runs = [_one_repeat(pred, stages, base, n, np.random.default_rng([seed, i]), matched)
+                for i in range(repeats)]
+        eds = {}
+        for label in stages:
+            vals = [r[0][label] for r in runs]
+            eds[label] = (min(vals), float(np.mean(vals)), max(vals))
+        return (eds, float(np.mean([r[1] for r in runs])), float(np.mean([r[2] for r in runs])),
+                float(np.mean([r[3] for r in runs])))
+
+    ed_by_stage, vr, floor, denom = summarise(True)
+    raw_ed, _, _, raw_denom = summarise(False)
     warnings = list(_depth_warnings(depth))
     if vr < COLLAPSE_LIMIT:
         warnings.append(f"Variance ratio vs {base} is {vr:.3g} (< {COLLAPSE_LIMIT}): the prediction "
@@ -126,12 +128,13 @@ def diagnose(pred, stages: dict, base: str, n: int = 1500, repeats: int = 5, see
                       warnings=tuple(warnings))
 
     r_by_stage = {k: v[1] / denom for k, v in ed_by_stage.items()}
-    r_base = r_by_stage[base]
-    label = _label(ed_by_stage[base][1], floor, denom, r_base)
-    if label == "copy_like":
-        warnings.append(f"Prediction looks like a copy of the input stage {base} after depth matching.")
-    elif label == "very_close":
-        warnings.append(f"Prediction is very close to the input stage {base}.")
-    return Result(**common, label=label, r_base=r_base, r_by_stage=r_by_stage,
+    raw_r_by_stage = {k: v[1] / raw_denom for k, v in raw_ed.items()}
+    r_base, raw_r_base = r_by_stage[base], raw_r_by_stage[base]
+    if denom <= MIN_SEPARATION * max(floor, 1e-12):
+        warnings.append("On this board the stages are within a few noise floors of each other at "
+                        "matched depth; r is not informative.")
+    warnings.extend(divergence_warning(raw_r_base, r_base, base))
+    return Result(**common, r_base=r_base, raw_r_base=raw_r_base, r_by_stage=r_by_stage,
+                  raw_r_by_stage=raw_r_by_stage, raw_ed_by_stage=raw_ed,
                   ed_by_stage=ed_by_stage, ed_floor=floor, denominator=denom,
                   r_floor=floor / denom, variance_ratio=vr, warnings=tuple(warnings))
